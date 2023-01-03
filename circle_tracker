@@ -1,0 +1,180 @@
+package com.example.circle_tracker;
+
+
+import android.os.Bundle;
+import android.util.Log;
+import android.view.SurfaceView;
+import android.view.WindowManager;
+
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraActivity;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.core.Mat;
+import org.opencv.core.Point;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
+
+import java.util.Collections;
+import java.util.List;
+
+public class MainActivity extends CameraActivity {
+
+    private static String LOG = "OpenCV_Log";
+    private CameraBridgeViewBase mOpenCVCameraView;
+
+    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS: {
+                    Log.v(LOG, "OpenCV initialize");
+                    mOpenCVCameraView.enableView();
+                }
+                break;
+                default: {
+                    super.onManagerConnected(status);
+                }break;
+            }
+        }
+    };
+
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setContentView(R.layout.activity_main);
+
+        mOpenCVCameraView = (CameraBridgeViewBase) findViewById(R.id.opencv_surface_view);
+        mOpenCVCameraView.setVisibility(SurfaceView.VISIBLE);
+        mOpenCVCameraView.setCvCameraViewListener(cvCameraViewListener);
+
+    }
+
+    @Override
+    protected List<?extends CameraBridgeViewBase> getCameraViewList() {
+        return Collections.singletonList(mOpenCVCameraView);
+    }
+
+    private CameraBridgeViewBase.CvCameraViewListener2 cvCameraViewListener = new CameraBridgeViewBase.CvCameraViewListener2() {
+        @Override
+        public void onCameraViewStarted(int width, int height) {
+
+        }
+
+        @Override
+        public void onCameraViewStopped() {
+
+        }
+
+        
+        private int delayFrame = 20; //delay of time (frames) once object is not detected, intended to avoid frames where ball is mistakenly not recognised 
+        
+        //called everytime a new frame is avaliable
+        @Override
+        public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+
+            Mat input = inputFrame.gray();
+            Mat circles = new Mat();
+            int minRadius = 30;
+            int maxRadius = 250;
+            String speed;
+            String direction;
+            String action;
+            Imgproc.blur(input, input, new Size(7, 7), new Point(2, 2));
+            Imgproc.HoughCircles(input, circles, Imgproc.CV_HOUGH_GRADIENT, 1, 1000, 30, 50, minRadius, maxRadius);
+            
+            //do the following if cicle is detected
+            if (circles.cols() > 0) {
+                delayFrame = 20; //Refresh Delay
+
+                for (int x=0; x < Math.min(circles.cols(), 5); x++ ) {
+                    double circleVec[] = circles.get(0, x);
+
+                    if (circleVec == null) {
+                        break;
+                    }
+
+                    int pos_x = (int) circleVec[0];     //x position
+                    int pos_y = (int) circleVec[1];     //y position
+                    Point center = new Point(pos_x, pos_y);     //create coordinate x,y
+                    int radius = (int) circleVec[2];    //radius if circle
+                    //Determine LEFT or RIGHT movement based on approximate location relative to center of screen
+                    if (pos_x <= 462) {
+                        direction = "LEFT";
+                    } else if (pos_x >= 562) {
+                        direction = "RIGHT";
+                    } else {
+                        direction = "ON TARGET";
+                    }
+                    //Determine FORWARDS or NONE Speed of robot
+                    if (radius > 160) {
+                        speed = "STAY";
+                    } else {
+                        speed = "FORWARD";
+                    }
+                    //Hit ball at desired distance and when stopped
+                    if (direction == "ON TARGET" &&  speed == "STAY") {
+                        action = "HIT BALL";
+                    } else {
+                        action = "AT EASE";
+                    }
+
+
+                    //Console Log Values
+                    //Log.i(LOG, String.valueOf("X: " + pos_x + "    Y: " + pos_y + "    R: " + radius + "     Direction: " + direction + "     Speed:" + speed));
+                    Log.i(LOG, String.valueOf("     Direction: " + direction + "     Speed: " + speed + "     Action: " + action));
+                    //Input is grayscale, Scalar will be B&W
+                    Imgproc.circle(input, center, 3, new Scalar(0, 255, 0), 10);
+                    Imgproc.circle(input, center, radius, new Scalar(0, 255, 0), 2);
+                }
+            } else {
+                if (delayFrame > 0) {
+                    delayFrame--;
+                } else {
+                    // Spin and search for ball
+                    direction = "LEFT";
+                    speed = "STAY";
+                    Log.i(LOG, String.valueOf("BALL NOT FOUND:               " + direction + "    " + speed));
+
+                }
+            }
+            //display image on screen
+            circles.release();
+            input.release();
+            return inputFrame.rgba();
+        }
+    };
+    
+    
+    //event handlers
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (mOpenCVCameraView != null) {
+            mOpenCVCameraView.disableView();
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(LOG, "OpenCV not found, Initializing");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
+        } else {
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (mOpenCVCameraView != null) {
+            mOpenCVCameraView.disableView();
+        }
+    }
+}
